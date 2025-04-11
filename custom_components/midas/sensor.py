@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING, Any
+from dateutil import parser  # Add the missing import
 
 from homeassistant.components.sensor import SensorEntity, SensorEntityDescription
 from homeassistant.components.sensor.const import SensorDeviceClass
@@ -338,21 +339,28 @@ class MidasCombinedForecastSensor(CoordinatorEntity[MidasDataUpdateCoordinator],
                 start_time = tariff.GetStart()
                 end_time = tariff.GetEnd()
 
+                # Skip tariffs with no valid start or end time
+                if not start_time or not end_time:
+                    continue
+
                 # Only include intervals that overlap with the target date
                 start_date = start_time.date()
                 end_date = end_time.date()
 
                 if start_date <= target_date <= end_date:
                     # Adjust times to be within the target date
+                    interval_start = start_time
                     if start_date < target_date:
-                        start_time = datetime.combine(target_date, datetime.min.time())
+                        interval_start = datetime.combine(target_date, datetime.min.time())
+
+                    interval_end = end_time
                     if end_date > target_date:
-                        end_time = datetime.combine(target_date, datetime.max.time())
+                        interval_end = datetime.combine(target_date, datetime.max.time().replace(microsecond=0))
 
                     all_intervals.append({
                         "rate_id": rate_id,
-                        "start": start_time,
-                        "end": end_time,
+                        "start": interval_start,
+                        "end": interval_end,
                         "price": tariff.value
                     })
 
@@ -375,13 +383,17 @@ class MidasCombinedForecastSensor(CoordinatorEntity[MidasDataUpdateCoordinator],
             start = boundaries[i]
             end = boundaries[i + 1]
 
+            # Skip zero-length intervals
+            if start == end:
+                continue
+
             # Find all tariffs active during this interval
             active_tariffs = {}  # Keyed by rate_id to avoid duplicates
             for interval in all_intervals:
                 if interval["start"] <= start and interval["end"] >= end:
                     active_tariffs[interval["rate_id"]] = interval["price"]
 
-            # Only create an interval if there are active tariffs
+            # Only create an interval if there are active tariffs for all rate_ids
             if active_tariffs:
                 combined_price = sum(active_tariffs.values())
                 combined_intervals.append({
@@ -407,7 +419,9 @@ class MidasCombinedForecastSensor(CoordinatorEntity[MidasDataUpdateCoordinator],
         raw_tomorrow = self._create_combined_forecast(tomorrow)
 
         # Filter out past intervals for today
-        raw_today = [interval for interval in raw_today if parser.parse(interval["start"]) > now]
+        raw_today = [interval for interval in raw_today 
+                    if isinstance(interval["start"], str) and 
+                       parser.parse(interval["start"]).replace(tzinfo=None) > now.replace(tzinfo=None)]
 
         # Basic rate info from the first rate
         first_rate_id = self._rate_ids[0] if self._rate_ids else None
