@@ -108,6 +108,9 @@
             "1hour_tariff_start": {
                 "name": "Future Tariff Start: 1 hour"
             },
+            "combined_energy_forecast": {
+                "name": "Combined Energy Price Forecast"
+            },
             "1hour_tariff_end": {
                 "name": "Future Tariff End: 1 hour"
             }
